@@ -1,4 +1,4 @@
-package edu.itvo.ejercicio4
+package edu.itvo.ejercicio4.domain.model
 
 import java.time.LocalDate
 

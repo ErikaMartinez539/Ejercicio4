@@ -1,50 +1,65 @@
 package edu.itvo.ejercicio4
 
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
+import edu.itvo.ejercicio4.data.repository.InMemoryGuestRepository
+import edu.itvo.ejercicio4.data.repository.InMemoryReservationRepository
+import edu.itvo.ejercicio4.data.repository.InMemoryRoomRepository
+import edu.itvo.ejercicio4.domain.model.Guest
+import edu.itvo.ejercicio4.domain.model.Room
+import edu.itvo.ejercicio4.domain.model.RoomType
+import edu.itvo.ejercicio4.domain.model.Reservation
+import edu.itvo.ejercicio4.domain.usecase.*
+import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
 import java.time.LocalDate
 
-class ReservationSystemTest {
+class ReservationUseCasesTest {
 
-    private lateinit var hotel: Hotel
-    private lateinit var reservationSystem: ReservationSystem
+    private lateinit var guestRepo: InMemoryGuestRepository
+    private lateinit var roomRepo: InMemoryRoomRepository
+    private lateinit var reservationRepo: InMemoryReservationRepository
+
+    private lateinit var makeReservation: MakeReservationUseCase
+    private lateinit var cancelReservation: CancelReservationUseCase
+    private lateinit var getAvailableRooms: GetAvailableRoomsUseCase
+    private lateinit var getGuestHistory: GetGuestHistoryUseCase
 
     @Before
     fun setUp() {
-        // Inicializa un nuevo hotel y sistema de reservas antes de cada prueba
-        hotel = Hotel()
-        reservationSystem = ReservationSystem(hotel)
+        guestRepo = InMemoryGuestRepository()
+        roomRepo = InMemoryRoomRepository()
+        reservationRepo = InMemoryReservationRepository()
 
-        // Prepara los datos de prueba
-        // Crea habitaciones
-        hotel.rooms.add(Room(number = 101, price = 100.0, available = true, roomType = RoomType.SINGLE))
-        hotel.rooms.add(Room(number = 102, price = 150.0, available = true, roomType = RoomType.DOUBLE))
-        hotel.rooms.add(Room(number = 103, price = 200.0, available = true, roomType = RoomType.SUITE))
+        makeReservation = MakeReservationUseCase(guestRepo, roomRepo, reservationRepo)
+        cancelReservation = CancelReservationUseCase(reservationRepo)
+        getAvailableRooms = GetAvailableRoomsUseCase(roomRepo, reservationRepo)
+        getGuestHistory = GetGuestHistoryUseCase(guestRepo)
 
-        // Crea huéspedes
-        hotel.guests.add(Guest("Juan Perez", "12345678A", mutableListOf()))
-        hotel.guests.add(Guest("Ana Gomez", "87654321B", mutableListOf()))
+        // Prepara datos
+        guestRepo.saveGuest(Guest("Juan Perez", "12345678A"))
+        guestRepo.saveGuest(Guest("Ana Gomez", "87654321B"))
+
+        roomRepo.saveRoom(
+            Room(number = 101, price = 100.0, available = true, roomType = RoomType.SINGLE)
+        )
+        roomRepo.saveRoom(
+            Room(number = 102, price = 150.0, available = true, roomType = RoomType.DOUBLE)
+        )
+        roomRepo.saveRoom(
+            Room(number = 103, price = 200.0, available = true, roomType = RoomType.SUITE)
+        )
     }
 
     @Test
     fun getAvailableRooms_shouldReturnCorrectRoomsForPeriod() {
-        // Arrange
         val initialDate = LocalDate.of(2025, 10, 10)
         val finalDate = LocalDate.of(2025, 10, 15)
 
-        // Act - se realiza una reserva para la habitación 101 en el período
-        val juan = hotel.guests.find { it.dni == "12345678A" }
-        val room101 = hotel.rooms.find { it.number == 101 }
-        if (juan != null && room101 != null) {
-            hotel.reservations.add(Reservation(juan, room101, LocalDate.of(2025, 10, 11), LocalDate.of(2025, 10, 14), 300.0))
-        }
+        // Reserva la habitación 101 en el período
+        makeReservation.execute("12345678A", 101, LocalDate.of(2025, 10, 11), LocalDate.of(2025, 10, 14))
 
-        val availableRooms = reservationSystem.getAvailableRooms(initialDate, finalDate)
+        val availableRooms = getAvailableRooms.execute(initialDate, finalDate)
 
-        // Assert
         assertEquals(2, availableRooms.size)
         assertFalse(availableRooms.any { it.number == 101 })
         assertTrue(availableRooms.any { it.number == 102 })
@@ -53,102 +68,73 @@ class ReservationSystemTest {
 
     @Test
     fun isRoomAvailable_shouldReturnTrueWhenRoomIsFree() {
-        // Arrange
         val initialDate = LocalDate.of(2025, 11, 1)
         val finalDate = LocalDate.of(2025, 11, 5)
 
-        // Act
-        val isAvailable = reservationSystem.isRoomAvailable(101, initialDate, finalDate)
+        val availableRooms = getAvailableRooms.execute(initialDate, finalDate)
+        val isAvailable = availableRooms.any { it.number == 101 }
 
-        // Assert
         assertTrue(isAvailable)
     }
 
     @Test
     fun isRoomAvailable_shouldReturnFalseWhenRoomIsReserved() {
-        // Arrange
         val initialDate = LocalDate.of(2025, 11, 1)
         val finalDate = LocalDate.of(2025, 11, 5)
-        val juan = hotel.guests.find { it.dni == "12345678A" }
-        val room101 = hotel.rooms.find { it.number == 101 }
-        if (juan != null && room101 != null) {
-            hotel.reservations.add(Reservation(juan, room101, LocalDate.of(2025, 11, 2), LocalDate.of(2025, 11, 4), 200.0))
-        }
 
-        // Act
-        val isAvailable = reservationSystem.isRoomAvailable(101, initialDate, finalDate)
+        makeReservation.execute("12345678A", 101, LocalDate.of(2025, 11, 2), LocalDate.of(2025, 11, 4))
 
-        // Assert
+        val availableRooms = getAvailableRooms.execute(initialDate, finalDate)
+        val isAvailable = availableRooms.any { it.number == 101 }
+
         assertFalse(isAvailable)
     }
 
     @Test
     fun makeReservation_shouldReturnTrueAndAddReservationWhenSuccessful() {
-        // Arrange
-        val guestDni = "12345678A"
-        val roomNumber = 102
-        val initialDate = LocalDate.of(2025, 12, 1)
-        val finalDate = LocalDate.of(2025, 12, 5)
+        val result = makeReservation.execute("12345678A", 102, LocalDate.of(2025, 12, 1), LocalDate.of(2025, 12, 5))
 
-        // Act
-        val result = reservationSystem.makeReservation(guestDni, roomNumber, initialDate, finalDate)
-
-        // Assert
         assertTrue(result)
-        assertEquals(1, hotel.reservations.size)
-        val savedReservation = hotel.reservations.first()
-        assertEquals(guestDni, savedReservation.guest.dni)
-        assertEquals(roomNumber, savedReservation.room.number)
+        val reservations = reservationRepo.getReservations()
+        assertEquals(1, reservations.size)
+        val savedReservation = reservations.first()
+        assertEquals("12345678A", savedReservation.guest.dni)
+        assertEquals(102, savedReservation.room.number)
     }
 
     @Test
     fun makeReservation_shouldReturnFalseWhenRoomIsNotAvailable() {
-        // Arrange
-        val guestDni = "12345678A"
-        val roomNumber = 101
-        val initialDate = LocalDate.of(2025, 12, 1)
-        val finalDate = LocalDate.of(2025, 12, 5)
+        // Reserva 101 primero
+        makeReservation.execute("12345678A", 101, LocalDate.of(2025, 12, 2), LocalDate.of(2025, 12, 4))
+        // Intenta reservar mismo rango con otro huésped
+        val result = makeReservation.execute("87654321B", 101, LocalDate.of(2025, 12, 1), LocalDate.of(2025, 12, 5))
 
-        // Act - se realiza una reserva para la habitación 101 para que no esté disponible
-        reservationSystem.makeReservation(guestDni, roomNumber, LocalDate.of(2025, 12, 2), LocalDate.of(2025, 12, 4))
-
-        // Se intenta hacer una nueva reserva para la misma habitación y fecha
-        val result = reservationSystem.makeReservation("87654321B", roomNumber, initialDate, finalDate)
-
-        // Assert
         assertFalse(result)
-        assertEquals(1, hotel.reservations.size) // No se agregó una segunda reserva
+        assertEquals(1, reservationRepo.getReservations().size)
     }
 
     @Test
     fun cancelReservation_shouldReturnTrueAndRemoveReservation() {
-        // Arrange
-        val guestDni = "12345678A"
-        val roomNumber = 101
-        val arrivalDate = LocalDate.of(2025, 10, 20)
+        makeReservation.execute("12345678A", 101, LocalDate.of(2025, 10, 20), LocalDate.of(2025, 10, 25))
+        val reservation = reservationRepo.getReservations().first()
 
-        // Agrega una reserva para poder cancelarla
-        reservationSystem.makeReservation(guestDni, roomNumber, arrivalDate, LocalDate.of(2025, 10, 25))
+        val result = cancelReservation.execute(reservation)
 
-        // Act
-        val result = reservationSystem.cancelReservation(guestDni, roomNumber, arrivalDate)
-
-        // Assert
         assertTrue(result)
-        assertTrue(hotel.reservations.isEmpty())
+        assertTrue(reservationRepo.getReservations().isEmpty())
     }
 
     @Test
     fun cancelReservation_shouldReturnFalseWhenReservationNotFound() {
-        // Arrange
-        val guestDni = "12345678A"
-        val roomNumber = 101
-        val arrivalDate = LocalDate.of(2025, 10, 20)
+        val fakeReservation = Reservation(
+            guest = guestRepo.getGuests().first(),
+            room = roomRepo.getRooms().first(),
+            arrivalDate = LocalDate.of(2025, 1, 1),
+            departureDate = LocalDate.of(2025, 1, 2),
+            total = 100.0
+        )
 
-        // Act - intenta cancelar una reserva que no existe
-        val result = reservationSystem.cancelReservation(guestDni, roomNumber, arrivalDate)
-
-        // Assert
+        val result = cancelReservation.execute(fakeReservation)
         assertFalse(result)
     }
 }
